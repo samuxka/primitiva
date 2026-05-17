@@ -155,10 +155,14 @@ const MissionsTab = () => {
       const res = await fetch(`${API_URL}/api/upload`, { method: 'POST', body: formData });
       const data = await res.json();
       setUploadingImage(false);
+      
+      if (!res.ok || data.error) throw new Error(data.error || 'Erro no servidor de imagens');
+      if (!data.secure_url) throw new Error('Servidor não retornou a URL da imagem');
+      
       return data.secure_url;
-    } catch {
+    } catch (e: any) {
       setUploadingImage(false);
-      alert('Erro.');
+      alert('Erro no upload: ' + e.message);
       return null;
     }
   };
@@ -286,9 +290,13 @@ const GalleryTab = () => {
       const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
       const res = await fetch(`${API_URL}/api/upload`, { method: 'POST', body: formData });
       const data = await res.json();
+      
+      if (!res.ok || data.error) throw new Error(data.error || 'Erro no servidor de imagens');
+      if (!data.secure_url) throw new Error('Servidor não retornou a URL da imagem');
+      
       return data.secure_url;
-    } catch {
-      alert('Erro no upload da foto/vídeo (' + file.name + ').');
+    } catch (e: any) {
+      alert('Erro no upload da foto/vídeo (' + file.name + '): ' + e.message);
       return null;
     }
   };
@@ -527,11 +535,14 @@ const TransparencyTab = () => {
       const res = await fetch(`${API_URL}/api/upload`, { method: 'POST', body: formData });
       const data = await res.json();
       setUploadingImage(false);
-      if (data.error) { alert('Erro Nuvem: ' + data.error); return null; }
+      
+      if (!res.ok || data.error) throw new Error(data.error || 'Erro no servidor de PDF');
+      if (!data.secure_url) throw new Error('Servidor não retornou a URL do PDF');
+      
       return data.secure_url;
     } catch (e: any) {
       setUploadingImage(false);
-      alert('Erro Crítico: ' + e.message);
+      alert('Erro Crítico no Upload: ' + e.message);
       return null;
     }
   };
