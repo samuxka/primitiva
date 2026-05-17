@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@theme {
+  --color-electric-blue: #00E5FF;
+  
+  /* Light Theme Adjustments */
+  --color-background: #fdfdfd; /* Pure white/slightly off-white */
+  --color-foreground: #09090b; /* Zinc 950 */
+  
+  --font-sans: "Outfit", "Inter", sans-serif;
+  --font-mono: "Geist Mono", "Inter", monospace;
+  
+  --color-accent: var(--color-electric-blue);
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground font-sans antialiased selection:bg-accent selection:text-black;
+  }
+}
+
+/* Taste-Skill Liquid Glass - Light Mode Adaptation */
+@layer utilities {
+  .glass-effect {
+    @apply backdrop-blur-xl bg-black/[0.03] border border-black/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)];
+  }
+  
+  .glass-nav {
+    @apply backdrop-blur-xl bg-white/80 border-b border-black/[0.05];
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
