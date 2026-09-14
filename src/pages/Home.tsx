@@ -3,7 +3,8 @@ import { CaretRight, HandHeart, GlobeHemisphereWest, ShieldCheck, Phone, Envelop
 import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/firebase';
+import { collection, addDoc } from 'firebase/firestore';
 
 // Como não consigo salvar as imagens diretamente do chat, 
 // configurei o código para ler da pasta public/images/
@@ -33,8 +34,10 @@ export const Home = () => {
     setSubmitStatus('idle');
     
     try {
-      const { error } = await supabase.from('contacts').insert([formData]);
-      if (error) throw error;
+      await addDoc(collection(db, 'contacts'), {
+        ...formData,
+        created_at: new Date().toISOString()
+      });
       setSubmitStatus('success');
       setFormData({ name: '', email: '', message: '' });
     } catch (err) {
@@ -102,7 +105,7 @@ export const Home = () => {
               </h1>
               
               <p className="text-xl text-zinc-100 max-w-[45ch] mb-12 leading-relaxed p-6 rounded-[2rem] bg-black/30 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.3)] border border-white/10">
-                Não atuamos nas margens. Entramos nas fendas mais profundas da sociedade para trazer restauração sistêmica.
+                Missões nunca foi fácil para queles que se propõe a fazer, porem tudo fica mais leve quando vidas são transformadas.
               </p>
               
               <div className="flex flex-wrap items-center gap-6">
@@ -154,7 +157,7 @@ export const Home = () => {
       <section className="px-6 py-32 max-w-7xl mx-auto w-full">
         <div className="mb-16 md:flex justify-between items-end">
           <h2 className="text-3xl md:text-5xl lg:text-6xl font-bold tracking-tighter">Nossas Frentes.</h2>
-          <p className="text-zinc-500 max-w-sm mt-4 md:mt-0">Metodologias aplicadas com precisão cirúrgica em áreas de vulnerabilidade extrema.</p>
+          <p className="text-zinc-500 max-w-sm mt-4 md:mt-0">O trabalho desenvolvido está alinhado com nossas experiencias, para o resultado ser mais rápido.</p>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

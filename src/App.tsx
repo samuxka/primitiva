@@ -8,6 +8,7 @@ import { Transparency } from './pages/Transparency';
 import { Missions } from './pages/Missions';
 import { Gallery } from './pages/Gallery';
 import { Studies } from './pages/Studies';
+import { StudyDetail } from './pages/StudyDetail';
 import { Donate } from './pages/Donate';
 import { MissionDetail } from './pages/MissionDetail';
 import { Admin } from './pages/Admin';
@@ -27,6 +28,7 @@ export default function App() {
               <Route path="missao/:id" element={<MissionDetail />} />
               <Route path="galeria" element={<Gallery />} />
               <Route path="estudos" element={<Studies />} />
+              <Route path="estudo/:id" element={<StudyDetail />} />
               <Route path="doar" element={<Donate />} />
             </Route>
           </Routes>

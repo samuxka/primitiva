@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { auth, db } from '../lib/firebase';
+import { signInWithEmailAndPassword, onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
+import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, getDocs, writeBatch, where } from 'firebase/firestore';
 import { useMissions } from '../context/MissionsContext';
 import MDEditor from '@uiw/react-md-editor';
-
+import { Image as ImageIcon, X } from '@phosphor-icons/react';
 
 // Basic Login Gate Component
 const AdminAuthGuard = ({ children }: { children: any }) => {
@@ -13,20 +15,11 @@ const AdminAuthGuard = ({ children }: { children: any }) => {
   const [isAuth, setIsAuth] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setIsAuth(!!session);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setIsAuth(!!user);
       setLoading(false);
     });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setIsAuth(!!session);
-      }
-    );
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    return () => unsubscribe();
   }, []);
 
   if (loading) return <div className="min-h-[100dvh] bg-zinc-50 flex items-center justify-center"><p className="font-mono text-sm tracking-widest uppercase text-zinc-500 animate-pulse">Carregando...</p></div>;
@@ -36,13 +29,10 @@ const AdminAuthGuard = ({ children }: { children: any }) => {
   const handleSubmit = async (e: any) => {
     e.preventDefault();
     setErr('');
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password: pwd
-    });
-
-    if (error) {
-      setErr(error.message === 'Invalid login credentials' ? 'Email ou Senha Incorretos' : error.message);
+    try {
+      await signInWithEmailAndPassword(auth, email, pwd);
+    } catch (error: any) {
+      setErr(error.code === 'auth/invalid-credential' ? 'Email ou Senha Incorretos' : error.message);
     }
   };
 
@@ -75,6 +65,11 @@ const AdminAuthGuard = ({ children }: { children: any }) => {
 export const Admin = () => {
   const [tab, setTab] = useState('Overview');
   
+  const handleSignOut = async () => {
+    await firebaseSignOut(auth);
+    window.location.reload();
+  };
+
   return (
     <AdminAuthGuard>
       <div className="flex flex-col md:flex-row h-[100dvh] w-full bg-zinc-50 text-zinc-900 font-sans z-50 overflow-hidden">
@@ -84,7 +79,7 @@ export const Admin = () => {
           <div className="flex justify-between items-center mb-4 md:mb-12">
             <h2 className="text-xl font-bold uppercase tracking-tighter">Painel de <br className="hidden md:block"/><span className="text-accent">Controle.</span></h2>
             <button 
-              onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }}
+              onClick={handleSignOut}
               className="md:hidden text-red-500 font-mono text-xs uppercase tracking-widest hover:bg-red-50 px-3 py-2 rounded-lg"
             >Sair</button>
           </div>
@@ -100,13 +95,13 @@ export const Admin = () => {
             ))}
           </nav>
           <button 
-            onClick={async () => { await supabase.auth.signOut(); window.location.reload(); }}
+            onClick={handleSignOut}
             className="hidden md:block mt-auto text-left px-4 py-3 text-red-500 font-mono text-xs uppercase tracking-widest hover:bg-red-50 rounded-lg"
           >Sair</button>
         </aside>
 
         {/* Dynamic Content */}
-        <main className="flex-1 p-8 md:p-12 overflow-y-auto">
+        <main className="flex-1 p-8 md:p-12 overflow-y-auto relative">
           {tab === 'Overview' && <OverviewTab />}
           {tab === 'Missões' && <MissionsTab />}
           {tab === 'Galeria' && <GalleryTab />}
@@ -141,44 +136,48 @@ const OverviewTab = () => {
   );
 };
 
-const MissionsTab = () => {
-  const { missions, refreshMissions } = useMissions();
-  const [form, setForm] = useState({ region: '', description: '', target: '', image_url: '' });
-  const [uploadingImage, setUploadingImage] = useState(false);
-
-  const handleUpload = async (file: File) => {
-    setUploadingImage(true);
+const handleUploadBackend = async (file: File) => {
     const formData = new FormData();
     formData.append('image', file);
     try {
       const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
       const res = await fetch(`${API_URL}/api/upload`, { method: 'POST', body: formData });
       const data = await res.json();
-      setUploadingImage(false);
       
-      if (!res.ok || data.error) throw new Error(data.error || 'Erro no servidor de imagens');
-      if (!data.secure_url) throw new Error('Servidor não retornou a URL da imagem');
+      if (!res.ok || data.error) throw new Error(data.error || 'Erro no servidor de upload');
+      if (!data.secure_url) throw new Error('Servidor não retornou a URL segura');
       
       return data.secure_url;
     } catch (e: any) {
-      setUploadingImage(false);
       alert('Erro no upload: ' + e.message);
       return null;
     }
-  };
+};
+
+const MissionsTab = () => {
+  const { missions, refreshMissions } = useMissions();
+  const [form, setForm] = useState({ region: '', description: '', target: '', image_url: '' });
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const createMission = async (e: any) => {
     e.preventDefault();
-    await supabase.from('missions').insert({
-      region: form.region, description: form.description, target: Number(form.target), image_url: form.image_url
+    await addDoc(collection(db, 'missions'), {
+      region: form.region,
+      description: form.description,
+      target: Number(form.target),
+      raised: 0,
+      image_url: form.image_url,
+      created_at: new Date().toISOString()
     });
     setForm({ region: '', description: '', target: '', image_url: '' });
     refreshMissions();
   };
 
   const deleteMission = async (id: string) => {
-    await supabase.from('missions').delete().eq('id', id);
-    refreshMissions();
+    if(confirm('Apagar missão?')) {
+        await deleteDoc(doc(db, 'missions', id));
+        refreshMissions();
+    }
   };
 
   return (
@@ -198,7 +197,9 @@ const MissionsTab = () => {
              onChange={async (e) => {
                const f = e.target.files?.[0];
                if(f) {
-                 const url = await handleUpload(f);
+                 setUploadingImage(true);
+                 const url = await handleUploadBackend(f);
+                 setUploadingImage(false);
                  if(url) setForm({...form, image_url: url});
                }
              }} 
@@ -226,7 +227,7 @@ const MissionsTab = () => {
             {missions.map(m => (
               <tr key={m.id} className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50">
                 <td className="p-4 font-semibold">{m.region}</td>
-                <td className="p-4 font-mono text-emerald-600">R$ {m.raised.toLocaleString('pt-BR')}</td>
+                <td className="p-4 font-mono text-emerald-600">R$ {(m.raised || 0).toLocaleString('pt-BR')}</td>
                 <td className="p-4"><button onClick={() => deleteMission(m.id!)} className="text-red-500 uppercase text-xs font-bold hover:underline">Deletar</button></td>
               </tr>
             ))}
@@ -242,26 +243,34 @@ const GalleryTab = () => {
   const [pendingMedia, setPendingMedia] = useState<{url: string, type: string}[]>([]);
   const [albumName, setAlbumName] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
-  
-  // For Album Navigation in Admin
   const [selectedAlbum, setSelectedAlbum] = useState<string | null>(null);
   
-  // For Album Metadata
   const [albumMeta, setAlbumMeta] = useState({ description: '', date: '', location: '' });
   const [savingMeta, setSavingMeta] = useState(false);
 
+  // Use onSnapshot for real-time updates from Firestore
+  useEffect(() => {
+    const q = query(collection(db, 'gallery'), orderBy('created_at', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        setImages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, []);
+
   useEffect(() => {
     if (selectedAlbum) {
-      supabase.from('albums_meta').select('*').eq('name', selectedAlbum).single().then(({ data }) => {
-        if (data) {
-          setAlbumMeta({ 
-            description: data.description || '', 
-            date: data.date || '', 
-            location: data.location || '' 
-          });
-        } else {
-          setAlbumMeta({ description: '', date: '', location: '' });
-        }
+      const q = query(collection(db, 'albums_meta'), where('name', '==', selectedAlbum));
+      getDocs(q).then(snapshot => {
+          if (!snapshot.empty) {
+              const data = snapshot.docs[0].data();
+              setAlbumMeta({
+                  description: data.description || '',
+                  date: data.date || '',
+                  location: data.location || ''
+              });
+          } else {
+              setAlbumMeta({ description: '', date: '', location: '' });
+          }
       });
     }
   }, [selectedAlbum]);
@@ -270,12 +279,25 @@ const GalleryTab = () => {
     e.preventDefault();
     setSavingMeta(true);
     try {
-      await supabase.from('albums_meta').upsert({
-        name: selectedAlbum,
-        description: albumMeta.description,
-        date: albumMeta.date,
-        location: albumMeta.location
-      });
+      const q = query(collection(db, 'albums_meta'), where('name', '==', selectedAlbum));
+      const snapshot = await getDocs(q);
+      
+      if (!snapshot.empty) {
+          // Update
+          await updateDoc(doc(db, 'albums_meta', snapshot.docs[0].id), {
+              description: albumMeta.description,
+              date: albumMeta.date,
+              location: albumMeta.location
+          });
+      } else {
+          // Insert
+          await addDoc(collection(db, 'albums_meta'), {
+              name: selectedAlbum,
+              description: albumMeta.description,
+              date: albumMeta.date,
+              location: albumMeta.location
+          });
+      }
       alert('Metadados do álbum salvos com sucesso!');
     } catch (err) {
       alert('Erro ao salvar metadados.');
@@ -283,49 +305,29 @@ const GalleryTab = () => {
     setSavingMeta(false);
   };
 
-  const handleUpload = async (file: File) => {
-    const formData = new FormData();
-    formData.append('image', file);
-    try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-      const res = await fetch(`${API_URL}/api/upload`, { method: 'POST', body: formData });
-      const data = await res.json();
-      
-      if (!res.ok || data.error) throw new Error(data.error || 'Erro no servidor de imagens');
-      if (!data.secure_url) throw new Error('Servidor não retornou a URL da imagem');
-      
-      return data.secure_url;
-    } catch (e: any) {
-      alert('Erro no upload da foto/vídeo (' + file.name + '): ' + e.message);
-      return null;
-    }
-  };
-
-  const fetchImages = async () => {
-    const { data } = await supabase.from('gallery').select('*').order('created_at', { ascending: false });
-    if (data) setImages(data);
-  };
-  
-  useEffect(() => { fetchImages(); }, []);
-
   const addImages = async (e: any) => {
     e.preventDefault();
     if(pendingMedia.length === 0 || !albumName) return alert('Selecione arquivos e insira o nome do álbum.');
-    const inserts = pendingMedia.map(m => ({ 
-      image_url: m.url, 
-      media_type: m.type,
-      album_name: albumName 
-    }));
-    await supabase.from('gallery').insert(inserts);
+    
+    const batch = writeBatch(db);
+    pendingMedia.forEach(m => {
+        const docRef = doc(collection(db, 'gallery'));
+        batch.set(docRef, {
+            image_url: m.url,
+            media_type: m.type,
+            album_name: albumName,
+            created_at: new Date().toISOString()
+        });
+    });
+    await batch.commit();
+
     setPendingMedia([]);
     setAlbumName('');
-    fetchImages();
   };
 
   const removeImage = async (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    await supabase.from('gallery').delete().eq('id', id);
-    fetchImages();
+    await deleteDoc(doc(db, 'gallery', id));
   };
 
   const renameAlbum = async (oldName: string, e?: React.MouseEvent) => {
@@ -333,14 +335,15 @@ const GalleryTab = () => {
     const newName = prompt(`Qual o novo nome do álbum "${oldName}"?`, oldName);
     if (!newName || newName === oldName) return;
     
-    if(oldName === 'Sem Álbum') {
-        await supabase.from('gallery').update({ album_name: newName }).is('album_name', null);
-        await supabase.from('gallery').update({ album_name: newName }).eq('album_name', '');
-    } else {
-        await supabase.from('gallery').update({ album_name: newName }).eq('album_name', oldName);
-    }
+    // In Firestore, we have to query and update individually, or via batch
+    const q = query(collection(db, 'gallery'), where('album_name', '==', oldName === 'Sem Álbum' ? '' : oldName));
+    const snapshot = await getDocs(q);
+    const batch = writeBatch(db);
+    snapshot.docs.forEach(d => {
+        batch.update(d.ref, { album_name: newName });
+    });
+    await batch.commit();
 
-    fetchImages();
     if (selectedAlbum === oldName) setSelectedAlbum(newName);
   };
 
@@ -348,14 +351,14 @@ const GalleryTab = () => {
     e?.stopPropagation();
     if(!confirm(`⚠️ DELETAR ÁLBUM: Tem certeza que deseja apagar o álbum "${name}" inteiramente com todas as contas mídias? Essa ação é IRREVERSÍVEL!`)) return;
     
-    if(name === 'Sem Álbum') {
-        await supabase.from('gallery').delete().is('album_name', null);
-        await supabase.from('gallery').delete().eq('album_name', '');
-    } else {
-        await supabase.from('gallery').delete().eq('album_name', name);
-    }
+    const q = query(collection(db, 'gallery'), where('album_name', '==', name === 'Sem Álbum' ? '' : name));
+    const snapshot = await getDocs(q);
+    const batch = writeBatch(db);
+    snapshot.docs.forEach(d => {
+        batch.delete(d.ref);
+    });
+    await batch.commit();
 
-    fetchImages();
     if (selectedAlbum === name) setSelectedAlbum(null);
   };
 
@@ -365,7 +368,6 @@ const GalleryTab = () => {
     acc[album].push(item);
     return acc;
   }, {});
-
   const albumNames = Object.keys(albums);
 
   return (
@@ -396,7 +398,7 @@ const GalleryTab = () => {
                     const newMedia: {url: string, type: string}[] = [];
                     for(let i = 0; i < files.length; i++) {
                       const f = files[i];
-                      const u = await handleUpload(f);
+                      const u = await handleUploadBackend(f);
                       if(u) {
                           const type = f.type.startsWith('video') ? 'video' : 'image';
                           newMedia.push({ url: u, type });
@@ -501,9 +503,6 @@ const GalleryTab = () => {
                         <img src={img.image_url} className="absolute inset-0 w-full h-full object-cover" />
                     )}
                     
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4 pointer-events-none">
-                    </div>
-                    
                     <div className="absolute bottom-4 left-4 right-4 z-10 flex justify-start opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={(e) => removeImage(img.id, e)} className="text-white bg-red-600/80 hover:bg-red-500 px-3 py-1 rounded-md text-xs uppercase tracking-widest font-bold font-mono shadow-lg">Remover</button>
                     </div>
@@ -526,47 +525,30 @@ const TransparencyTab = () => {
   const [pdfUrl, setPdfUrl] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
 
-  const handleUpload = async (file: File) => {
-    setUploadingImage(true);
-    const formData = new FormData();
-    formData.append('image', file);
-    try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-      const res = await fetch(`${API_URL}/api/upload`, { method: 'POST', body: formData });
-      const data = await res.json();
-      setUploadingImage(false);
-      
-      if (!res.ok || data.error) throw new Error(data.error || 'Erro no servidor de PDF');
-      if (!data.secure_url) throw new Error('Servidor não retornou a URL do PDF');
-      
-      return data.secure_url;
-    } catch (e: any) {
-      setUploadingImage(false);
-      alert('Erro Crítico no Upload: ' + e.message);
-      return null;
-    }
-  };
-
-  const fetchTxs = async () => {
-    const { data } = await supabase.from('transactions').select('*').order('created_at', { ascending: false });
-    if (data) setTxs(data);
-  };
-  useEffect(() => { fetchTxs(); }, []);
+  useEffect(() => {
+    const q = query(collection(db, 'transactions'), orderBy('created_at', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        setTxs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, []);
 
   const addTx = async (e: any) => {
     e.preventDefault();
     if(!pdfUrl) return alert("Faça o upload do PDF primeiro.");
-    await supabase.from('transactions').insert([{ 
-      tx_date: form.date, description: form.title, amount: pdfUrl, is_positive: true 
-    }]);
+    await addDoc(collection(db, 'transactions'), {
+      tx_date: form.date, 
+      description: form.title, 
+      amount: pdfUrl, 
+      is_positive: true,
+      created_at: new Date().toISOString()
+    });
     setForm({ date: '', title: ''});
     setPdfUrl('');
-    fetchTxs();
   };
 
   const removeTx = async (id: string) => {
-      await supabase.from('transactions').delete().eq('id', id);
-      fetchTxs();
+      await deleteDoc(doc(db, 'transactions', id));
   };
 
   return (
@@ -584,7 +566,9 @@ const TransparencyTab = () => {
              onChange={async (e) => {
                const f = e.target.files?.[0];
                if(f) {
-                 const url = await handleUpload(f);
+                 setUploadingImage(true);
+                 const url = await handleUploadBackend(f);
+                 setUploadingImage(false);
                  if(url) setPdfUrl(url);
                }
              }} 
@@ -592,7 +576,7 @@ const TransparencyTab = () => {
              id="pdf-upload" 
           />
           <label htmlFor="pdf-upload" className="cursor-pointer border-2 border-dashed border-zinc-300 p-4 rounded-xl flex items-center justify-center text-sm font-bold text-zinc-500 hover:border-zinc-950 transition-colors w-full h-16 bg-zinc-50">
-            {uploadingImage ? 'Enviando PDF para Nuvem...' : pdfUrl ? 'PDF Anexado! (Pronto para publicar)' : 'Anexar Arquivo PDF'}
+            {uploadingImage ? 'Enviando PDF...' : pdfUrl ? 'PDF Anexado! (Pronto para publicar)' : 'Anexar Arquivo PDF'}
           </label>
         </div>
         <button type="submit" disabled={!pdfUrl || uploadingImage} className="col-span-2 bg-zinc-950 text-white p-4 rounded-xl font-bold disabled:opacity-50">Publicar Balanço</button>
@@ -618,47 +602,250 @@ const TransparencyTab = () => {
 
 const StudiesTab = () => {
     const [studies, setStudies] = useState<any[]>([]);
-    const [form, setForm] = useState({ title: '', content: '' });
+    const [allCategories, setAllCategories] = useState<string[]>([]);
+    const [form, setForm] = useState({ title: '', content: '', banner_url: '', categories: [] as string[] });
+    const [catInput, setCatInput] = useState('');
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [uploadingBanner, setUploadingBanner] = useState(false);
+    
+    // UI state for custom category dropdown
+    const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
 
-    const fetchStudies = async () => {
-      const { data } = await supabase.from('studies').select('*').order('created_at', { ascending: false });
-      if (data) setStudies(data);
-    };
-    useEffect(() => { fetchStudies(); }, []);
+    useEffect(() => {
+      const q = query(collection(db, 'studies'), orderBy('created_at', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+          const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setStudies(docs);
+          
+          // Extract unique categories from studies
+          const cats = new Set<string>();
+          docs.forEach((s: any) => {
+              if (s.categories && Array.isArray(s.categories)) {
+                  s.categories.forEach((c: string) => cats.add(c));
+              } else if (s.category) {
+                  cats.add(s.category);
+              }
+          });
+          setAllCategories(Array.from(cats));
+      });
+      return () => unsubscribe();
+    }, []);
   
-    const addStudy = async (e: any) => {
+    const handleSubmit = async (e: any) => {
       e.preventDefault();
-      await supabase.from('studies').insert([{ title: form.title, content: form.content }]);
-      setForm({ title: '', content: '' });
-      fetchStudies();
+      // Auto-add any pending category input
+      let finalCats = [...form.categories];
+      if (catInput.trim()) {
+          finalCats.push(catInput.trim());
+      }
+      
+      if (editingId) {
+        await updateDoc(doc(db, 'studies', editingId), { 
+          title: form.title, 
+          content: form.content,
+          banner_url: form.banner_url,
+          categories: finalCats
+        });
+        setEditingId(null);
+      } else {
+        await addDoc(collection(db, 'studies'), { 
+          title: form.title, 
+          content: form.content,
+          banner_url: form.banner_url,
+          categories: finalCats,
+          likes_count: 0,
+          created_at: new Date().toISOString()
+        });
+      }
+      setForm({ title: '', content: '', banner_url: '', categories: [] });
+      setCatInput('');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const editStudy = (s: any) => {
+      let cats = s.categories || [];
+      if (!s.categories && s.category) cats = [s.category]; // Retro-compat
+      setForm({ title: s.title, content: s.content, banner_url: s.banner_url || '', categories: cats });
+      setCatInput('');
+      setEditingId(s.id);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const cancelEdit = () => {
+      setForm({ title: '', content: '', banner_url: '', categories: [] });
+      setCatInput('');
+      setEditingId(null);
     };
 
     const removeStudy = async (id: string) => {
-        await supabase.from('studies').delete().eq('id', id);
-        fetchStudies();
+        if(!confirm('Tem certeza que deseja apagar este estudo?')) return;
+        await deleteDoc(doc(db, 'studies', id));
     }
+    
+    const handleCategoryInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = e.target.value;
+        if (val.includes(',')) {
+            const newCats = val.split(',').map(c => c.trim()).filter(Boolean);
+            if (newCats.length > 0) {
+                setForm(prev => ({ ...prev, categories: [...new Set([...prev.categories, ...newCats])] }));
+            }
+            setCatInput('');
+            setShowCategoryDropdown(false);
+        } else {
+            setCatInput(val);
+        }
+    };
+    
+    const removeCategory = (catToRemove: string) => {
+        setForm(prev => ({ ...prev, categories: prev.categories.filter(c => c !== catToRemove) }));
+    };
   
     return (
-      <div className="animate-in fade-in">
-        <h1 className="text-3xl font-bold mb-6">Estudos Publicados</h1>
-        <form onSubmit={addStudy} className="bg-white p-6 rounded-2xl border border-zinc-200 mb-8 flex flex-col gap-4">
-          <input required placeholder="Título do Estudo" value={form.title} onChange={e=>setForm({...form, title: e.target.value})} className="border p-3 rounded-xl text-lg font-bold outline-none focus:border-zinc-500" />
-          <div data-color-mode="light">
-            <MDEditor value={form.content} onChange={val=>setForm({...form, content: val || ''})} height={350} />
-          </div>
-          <button type="submit" className="bg-zinc-950 text-white p-4 rounded-xl font-bold hover:opacity-90 mt-2">Publicar Estudo</button>
+      <div className="animate-in fade-in w-full max-w-4xl mx-auto pb-32">
+        <div className="flex justify-between items-center mb-12">
+            <h1 className="text-3xl font-bold tracking-tight text-zinc-950">{editingId ? 'Editando Artigo' : 'Novo Artigo'}</h1>
+            {editingId && (
+                <button type="button" onClick={cancelEdit} className="text-zinc-500 hover:text-zinc-950 bg-white font-bold text-xs uppercase tracking-widest border border-zinc-200 px-4 py-2 rounded-full shadow-sm hover:shadow transition-all">Cancelar Edição</button>
+            )}
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col mb-16 relative bg-white border border-zinc-200 rounded-[2rem] overflow-hidden shadow-sm">
+            {/* Notion Style Header */}
+            <div className="relative w-full h-48 md:h-64 bg-zinc-100 group flex items-center justify-center overflow-hidden border-b border-zinc-200">
+                {form.banner_url ? (
+                    <img src={form.banner_url} className="absolute inset-0 w-full h-full object-cover" alt="Banner" />
+                ) : (
+                    <div className="text-zinc-400 font-mono text-sm tracking-widest uppercase flex flex-col items-center gap-2">
+                       <ImageIcon size={32} />
+                       Sem Banner
+                    </div>
+                )}
+                
+                <div className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity ${form.banner_url ? 'opacity-0 group-hover:opacity-100' : 'opacity-100 hover:bg-black/50'}`}>
+                    <label className="cursor-pointer bg-white text-zinc-950 px-6 py-3 rounded-full font-bold text-sm tracking-wide shadow-xl flex items-center gap-2 hover:scale-105 transition-transform">
+                        <ImageIcon size={20} />
+                        {uploadingBanner ? 'Enviando...' : form.banner_url ? 'Alterar Banner' : 'Adicionar Banner'}
+                        <input 
+                            type="file" 
+                            accept="image/*" 
+                            className="hidden" 
+                            onChange={async (e) => {
+                                const f = e.target.files?.[0];
+                                if(f) {
+                                    setUploadingBanner(true);
+                                    const url = await handleUploadBackend(f);
+                                    setUploadingBanner(false);
+                                    if(url) setForm({...form, banner_url: url});
+                                }
+                            }}
+                        />
+                    </label>
+                    {form.banner_url && (
+                        <button type="button" onClick={() => setForm({...form, banner_url: ''})} className="absolute top-4 right-4 bg-white/20 hover:bg-red-500 text-white p-2 rounded-full backdrop-blur-md transition-colors">
+                            <X size={20} />
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            <div className="p-8 md:p-12">
+                <input 
+                    required 
+                    placeholder="Título do Artigo..." 
+                    value={form.title} 
+                    onChange={e=>setForm({...form, title: e.target.value})} 
+                    className="w-full text-4xl md:text-5xl font-bold tracking-tighter text-zinc-950 placeholder:text-zinc-300 outline-none border-none bg-transparent mb-6" 
+                />
+                
+                <div className="relative mb-12 flex flex-col gap-4">
+                   <div className="flex items-center gap-2">
+                       <div className="font-mono text-xs uppercase tracking-widest text-zinc-400">Tags/Categorias:</div>
+                       <input
+                            placeholder="Digite e coloque vírgula para adicionar..."
+                            value={catInput}
+                            onChange={handleCategoryInput}
+                            onFocus={() => setShowCategoryDropdown(true)}
+                            onBlur={() => setTimeout(() => setShowCategoryDropdown(false), 200)}
+                            className="flex-1 bg-zinc-50 border border-zinc-200 rounded-lg px-4 py-2 font-mono text-sm text-zinc-950 outline-none focus:border-zinc-400"
+                       />
+                   </div>
+                   
+                   {/* Categorias Selecionadas */}
+                   {form.categories.length > 0 && (
+                       <div className="flex flex-wrap gap-2">
+                           {form.categories.map(c => (
+                               <span key={c} className="inline-flex items-center gap-1 bg-zinc-950 text-white px-3 py-1 rounded-md text-xs font-mono tracking-wide">
+                                   {c}
+                                   <button type="button" onClick={() => removeCategory(c)} className="hover:text-red-400 ml-1"><X size={12} weight="bold"/></button>
+                               </span>
+                           ))}
+                       </div>
+                   )}
+                   
+                   {showCategoryDropdown && allCategories.length > 0 && (
+                       <div className="absolute top-12 left-0 mt-2 w-64 bg-white border border-zinc-200 rounded-xl shadow-xl z-50 overflow-hidden py-2">
+                           <div className="px-4 py-2 text-[10px] font-bold text-zinc-400 uppercase tracking-widest font-mono">Categorias Existentes</div>
+                           {allCategories.filter(c => c.toLowerCase().includes(catInput.toLowerCase())).map(c => (
+                               <button 
+                                  key={c}
+                                  type="button"
+                                  onClick={() => { 
+                                      if(!form.categories.includes(c)) setForm(prev => ({...prev, categories: [...prev.categories, c]}));
+                                      setCatInput(''); 
+                                      setShowCategoryDropdown(false); 
+                                  }}
+                                  className="w-full text-left px-4 py-2 hover:bg-zinc-50 text-sm font-mono text-zinc-700 transition-colors"
+                               >
+                                  {c}
+                               </button>
+                           ))}
+                       </div>
+                   )}
+                </div>
+
+                <div data-color-mode="light" className="border border-zinc-100 rounded-xl overflow-hidden">
+                    <MDEditor value={form.content} onChange={val=>setForm({...form, content: val || ''})} height={500} preview="edit" hideToolbar={false} />
+                </div>
+                
+                <div className="mt-8 flex justify-end">
+                    <button type="submit" disabled={uploadingBanner} className="bg-zinc-950 text-white px-8 py-4 rounded-full font-bold hover:scale-105 transition-transform disabled:opacity-50">
+                        {editingId ? 'Salvar Alterações' : 'Publicar Artigo'}
+                    </button>
+                </div>
+            </div>
         </form>
 
-        <div className="space-y-4">
-            {studies.map(s => (
-                <div key={s.id} className="bg-white p-6 rounded-2xl border border-zinc-200">
-                    <div className="flex justify-between items-start mb-4">
-                        <h2 className="text-xl font-bold">{s.title}</h2>
-                        <button className="text-red-500 text-xs font-bold uppercase hover:underline" onClick={() => removeStudy(s.id)}>Deletar</button>
+        <h2 className="text-2xl font-bold tracking-tight text-zinc-950 mb-6">Artigos Publicados</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {studies.map(s => {
+                const displayCats = s.categories || (s.category ? [s.category] : []);
+                return (
+                <div key={s.id} className="bg-white rounded-2xl border border-zinc-200 overflow-hidden group hover:border-zinc-300 transition-colors shadow-sm flex flex-col">
+                    {s.banner_url && (
+                        <div className="w-full h-32 bg-zinc-100 relative overflow-hidden">
+                            <img src={s.banner_url} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                        </div>
+                    )}
+                    <div className="p-6 flex-1 flex flex-col">
+                        <div className="flex flex-wrap gap-1 mb-2">
+                           {displayCats.slice(0, 3).map((c:string) => (
+                              <span key={c} className="text-[10px] uppercase tracking-widest font-mono text-accent font-bold">{c}</span>
+                           ))}
+                        </div>
+                        <h2 className="text-lg font-bold leading-tight mb-2 text-zinc-950 line-clamp-2">{s.title}</h2>
+                        <div className="flex items-center gap-4 mt-auto pt-4 border-t border-zinc-100">
+                          <button className="text-zinc-600 bg-zinc-100 px-3 py-1.5 rounded-lg text-xs font-bold uppercase hover:bg-zinc-200 transition-colors flex-1" onClick={() => editStudy(s)}>Editar</button>
+                          <button className="text-red-600 bg-red-50 px-3 py-1.5 rounded-lg text-xs font-bold uppercase hover:bg-red-100 transition-colors flex-1" onClick={() => removeStudy(s.id)}>Deletar</button>
+                        </div>
                     </div>
-                    <p className="text-zinc-600 line-clamp-3">{s.content}</p>
                 </div>
-            ))}
+            )})}
+            
+            {studies.length === 0 && (
+                <div className="col-span-full py-12 text-center text-zinc-400 font-mono text-sm tracking-widest uppercase border border-dashed border-zinc-200 rounded-2xl">
+                    Nenhum artigo publicado.
+                </div>
+            )}
         </div>
       </div>
     );
@@ -667,16 +854,17 @@ const StudiesTab = () => {
 const MessagesTab = () => {
     const [messages, setMessages] = useState<any[]>([]);
 
-    const fetchMessages = async () => {
-      const { data } = await supabase.from('contacts').select('*').order('created_at', { ascending: false });
-      if (data) setMessages(data);
-    };
-    useEffect(() => { fetchMessages(); }, []);
+    useEffect(() => {
+      const q = query(collection(db, 'contacts'), orderBy('created_at', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+          setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      });
+      return () => unsubscribe();
+    }, []);
 
     const removeMessage = async (id: string) => {
         if(!confirm('Apagar esta mensagem?')) return;
-        await supabase.from('contacts').delete().eq('id', id);
-        fetchMessages();
+        await deleteDoc(doc(db, 'contacts', id));
     }
   
     return (

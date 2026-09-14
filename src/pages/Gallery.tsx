@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/firebase';
+import { collection, query, orderBy, onSnapshot, getDocs } from 'firebase/firestore';
 import { X, CaretLeft, CaretRight, MapPin, CalendarBlank } from '@phosphor-icons/react';
 
 export const Gallery = () => {
@@ -11,16 +12,24 @@ export const Gallery = () => {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   useEffect(() => {
-    supabase.from('gallery').select('*').order('created_at', { ascending: false }).then(({ data }) => setItems(data || []));
-    
-    // Fetch Album Meta
-    supabase.from('albums_meta').select('*').then(({ data }) => {
-      if (data) {
-        const metaMap: Record<string, any> = {};
-        data.forEach(m => metaMap[m.name] = m);
-        setAlbumsMeta(metaMap);
-      }
+    const q = query(collection(db, 'gallery'), orderBy('created_at', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
+
+    // Fetch Album Meta
+    getDocs(collection(db, 'albums_meta')).then((snapshot) => {
+        if (!snapshot.empty) {
+            const metaMap: Record<string, any> = {};
+            snapshot.docs.forEach(doc => {
+                const data = doc.data();
+                metaMap[data.name] = data;
+            });
+            setAlbumsMeta(metaMap);
+        }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const albums = items.reduce((acc: any, item: any) => {

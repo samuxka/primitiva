@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/firebase';
+import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 
 export const Transparency = () => {
   const [txs, setTxs] = useState<any[]>([]);
 
   useEffect(() => {
-    // Initial fetch
-    supabase.from('transactions').select('*').order('created_at', { ascending: false }).then(({ data }) => setTxs(data || []));
+    const q = query(collection(db, 'transactions'), orderBy('created_at', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        setTxs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
   }, []);
 
   return (
