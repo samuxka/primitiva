@@ -24,7 +24,7 @@ export const StudyDetail = () => {
       const docSnap = await getDoc(docRef);
 
       if (docSnap.exists()) {
-        const data = { id: docSnap.id, ...docSnap.data() };
+        const data = { id: docSnap.id, ...docSnap.data() } as any;
         setStudy(data);
         setLikesCount(data.likes_count || 0);
         
