@@ -3,6 +3,14 @@ import { db } from '../lib/firebase';
 import { collection, query, orderBy, onSnapshot, getDocs } from 'firebase/firestore';
 import { X, CaretLeft, CaretRight, MapPin, CalendarBlank } from '@phosphor-icons/react';
 
+const getDisplayUrl = (url: string) => {
+    if (!url) return url;
+    if (url.includes('cloudinary.com') && url.toLowerCase().endsWith('.heic')) {
+        return url.replace(/\.heic$/i, '.jpg');
+    }
+    return url;
+};
+
 export const Gallery = () => {
   const [items, setItems] = useState<any[]>([]);
   const [albumsMeta, setAlbumsMeta] = useState<Record<string, any>>({});
@@ -85,7 +93,7 @@ export const Gallery = () => {
                     {coverItem.media_type === 'video' ? (
                       <video src={coverItem.image_url} className="w-full h-full object-cover" muted playsInline />
                     ) : (
-                      <img src={coverItem.image_url} className="w-full h-full object-cover" alt={albumName} />
+                      <img src={getDisplayUrl(coverItem.image_url)} className="w-full h-full object-cover" alt={albumName} />
                     )}
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-500 flex items-center justify-center">
                         <span className="text-white font-mono uppercase tracking-widest text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-500 font-bold bg-black/40 px-6 py-2 rounded-full backdrop-blur-sm">Abrir Álbum</span>
@@ -145,7 +153,7 @@ export const Gallery = () => {
                 ) : (
                   <>
                     <img 
-                      src={item.image_url} 
+                      src={getDisplayUrl(item.image_url)} 
                       alt="Galeria" 
                       className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-105" 
                     />
@@ -196,7 +204,7 @@ export const Gallery = () => {
                   />
                 ) : (
                   <img 
-                    src={currentAlbumItems[lightboxIndex].image_url} 
+                    src={getDisplayUrl(currentAlbumItems[lightboxIndex].image_url)} 
                     alt="Lightbox" 
                     className="max-h-[90vh] max-w-full object-contain rounded-2xl shadow-2xl pointer-events-auto"
                     onClick={(e) => e.stopPropagation()} 

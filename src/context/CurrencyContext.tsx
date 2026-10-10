@@ -25,15 +25,19 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         
         let code = 'BRL';
         if (country !== 'BR') {
-           try {
-             const restRes = await fetch(`https://restcountries.com/v3.1/alpha/${country}`);
-             const restData = await restRes.json();
-             const currencies = restData[0]?.currencies;
-             if (currencies) {
-               code = Object.keys(currencies)[0];
-             }
-           } catch(e) {
-             console.log("RestCountries fetch err:", e);
+           const commonCurrencies: Record<string, string> = {
+             PT: 'EUR', US: 'USD', GB: 'GBP', EU: 'EUR', AR: 'ARS',
+             UY: 'UYU', CL: 'CLP', PY: 'PYG', BO: 'BOB', PE: 'PEN',
+             CO: 'COP', VE: 'VES', MX: 'MXN', CA: 'CAD', AU: 'AUD',
+             NZ: 'NZD', JP: 'JPY', CN: 'CNY', IN: 'INR', ZA: 'ZAR',
+             FR: 'EUR', DE: 'EUR', IT: 'EUR', ES: 'EUR', NL: 'EUR',
+             BE: 'EUR', AT: 'EUR', IE: 'EUR', FI: 'EUR', GR: 'EUR',
+             CH: 'CHF', SE: 'SEK', NO: 'NOK', DK: 'DKK', RU: 'RUB',
+             KR: 'KRW'
+           };
+           
+           if (commonCurrencies[country]) {
+             code = commonCurrencies[country];
            }
         }
         

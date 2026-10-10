@@ -6,6 +6,14 @@ import { useMissions } from '../context/MissionsContext';
 import MDEditor from '@uiw/react-md-editor';
 import { Image as ImageIcon, X } from '@phosphor-icons/react';
 
+const getDisplayUrl = (url: string) => {
+    if (!url) return url;
+    if (url.includes('cloudinary.com') && url.toLowerCase().endsWith('.heic')) {
+        return url.replace(/\.heic$/i, '.jpg');
+    }
+    return url;
+};
+
 // Basic Login Gate Component
 const AdminAuthGuard = ({ children }: { children: any }) => {
   const [email, setEmail] = useState('');
@@ -438,7 +446,7 @@ const GalleryTab = () => {
                                 {cover.media_type === 'video' ? (
                                     <video src={cover.image_url} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" muted playsInline />
                                 ) : (
-                                    <img src={cover.image_url} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                                    <img src={getDisplayUrl(cover.image_url)} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                                 )}
                                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                     <span className="text-white font-bold tracking-widest text-xs uppercase bg-black/50 px-4 py-2 rounded-full border border-white/20">Ver Mídias</span>
@@ -500,7 +508,7 @@ const GalleryTab = () => {
                     {img.media_type === 'video' ? (
                         <video src={img.image_url} className="absolute inset-0 w-full h-full object-cover" muted loop playsInline controls />
                     ) : (
-                        <img src={img.image_url} className="absolute inset-0 w-full h-full object-cover" />
+                        <img src={getDisplayUrl(img.image_url)} className="absolute inset-0 w-full h-full object-cover" />
                     )}
                     
                     <div className="absolute bottom-4 left-4 right-4 z-10 flex justify-start opacity-0 group-hover:opacity-100 transition-opacity">
